@@ -5,7 +5,7 @@ on:
     paths:
       - '**/hello.c'
   push:
-    branches: [ main, master ]
+    branches: [ main, master, 先导活动提交支 ]
     paths:
       - '**/hello.c'
 
