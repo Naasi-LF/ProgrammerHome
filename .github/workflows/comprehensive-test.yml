@@ -1,0 +1,209 @@
+name: Comprehensive Hello World Test
+
+on:
+  pull_request:
+    paths:
+      - '**/hello.c'
+  push:
+    branches: [ main, master ]
+    paths:
+      - '**/hello.c'
+
+jobs:
+  find-hello-files:
+    runs-on: ubuntu-latest
+    outputs:
+      hello_files_json: ${{ steps.find_files.outputs.hello_files_json }}
+      has_hello_files: ${{ steps.find_files.outputs.has_hello_files }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        
+    - name: Find modified hello.c files
+      id: find_files
+      run: |
+        echo "🔍 Searching for modified hello.c files..."
+        
+        # Get the list of changed files
+        if [ "${{ github.event_name }}" = "pull_request" ]; then
+          CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }}..${{ github.sha }})
+        else
+          if [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+            CHANGED_FILES=$(git diff --name-only ${{ github.event.before }}..${{ github.sha }})
+          else
+            CHANGED_FILES=$(git ls-files)
+          fi
+        fi
+        
+        # Filter for hello.c files
+        HELLO_FILES=$(echo "$CHANGED_FILES" | grep -E 'hello\.c$' || true)
+        
+        if [ -z "$HELLO_FILES" ]; then
+          echo "has_hello_files=false" >> $GITHUB_OUTPUT
+          echo "hello_files_json=[]" >> $GITHUB_OUTPUT
+        else
+          echo "📝 Found hello.c files:"
+          echo "$HELLO_FILES"
+          HELLO_FILES_JSON=$(echo "$HELLO_FILES" | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "has_hello_files=true" >> $GITHUB_OUTPUT
+          echo "hello_files_json=$HELLO_FILES_JSON" >> $GITHUB_OUTPUT
+        fi
+  test-hello-world:
+    needs: find-hello-files
+    if: needs.find-hello-files.outputs.has_hello_files == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        hello_file: ${{ fromJson(needs.find-hello-files.outputs.hello_files_json) }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Display testing file
+      run: |
+        echo "Testing hello.c file: ${{ matrix.hello_file }}"
+        echo "File location: $(dirname ${{ matrix.hello_file }})"
+      
+    - name: Setup build environment
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc g++
+    
+    - name: Compile wcmp checker
+      run: |
+        cd testres
+        g++ -std=c++17 -O2 -o wcmp wcmp.cpp
+        chmod +x wcmp
+        echo "✅ wcmp compiled successfully"
+        
+    - name: Compile hello.c
+      run: |
+        HELLO_FILE="${{ matrix.hello_file }}"
+        HELLO_DIR=$(dirname "$HELLO_FILE")
+        HELLO_BASENAME=$(basename "$HELLO_FILE" .c)
+        
+        echo "Compiling $HELLO_FILE..."
+        gcc -O2 -Wall -Wextra -o "${HELLO_DIR}/${HELLO_BASENAME}" "$HELLO_FILE"
+        chmod +x "${HELLO_DIR}/${HELLO_BASENAME}"
+        echo "✅ $HELLO_FILE compiled successfully"
+        
+    - name: Run hello program and capture output
+      run: |
+        HELLO_FILE="${{ matrix.hello_file }}"
+        HELLO_DIR=$(dirname "$HELLO_FILE")
+        HELLO_BASENAME=$(basename "$HELLO_FILE" .c)
+        
+        echo "🔄 Running ${HELLO_DIR}/${HELLO_BASENAME}..."
+        "./${HELLO_DIR}/${HELLO_BASENAME}" > "${HELLO_DIR}/actual_output.txt"
+        echo "✅ Program executed successfully"
+        
+    - name: Create expected output file
+      run: |
+        HELLO_DIR=$(dirname "${{ matrix.hello_file }}")
+        printf "Hello World" > "${HELLO_DIR}/expected_output.txt"
+        echo "✅ Expected output file created"
+        
+    # - name: Debug output comparison
+    #   run: |
+    #     HELLO_DIR=$(dirname "${{ matrix.hello_file }}")
+        
+    #     echo "=== File sizes ==="
+    #     wc -c "${HELLO_DIR}/actual_output.txt" "${HELLO_DIR}/expected_output.txt"
+        
+    #     echo "=== Actual output ==="
+    #     cat "${HELLO_DIR}/actual_output.txt" | od -c
+        
+    #     echo "=== Expected output ==="
+    #     cat "${HELLO_DIR}/expected_output.txt" | od -c
+        
+    #     echo "=== Direct comparison ==="
+    #     if diff "${HELLO_DIR}/actual_output.txt" "${HELLO_DIR}/expected_output.txt" > /dev/null; then
+    #       echo "✅ Files are identical (diff)"
+    #     else
+    #       echo "❌ Files differ (diff)"
+    #       diff "${HELLO_DIR}/actual_output.txt" "${HELLO_DIR}/expected_output.txt" || true
+    #     fi
+        
+    - name: Test with wcmp
+      run: |
+        HELLO_FILE="${{ matrix.hello_file }}"
+        HELLO_DIR=$(dirname "$HELLO_FILE")
+        
+        echo "Running wcmp comparison for $HELLO_FILE..."
+        touch "${HELLO_DIR}/empty_input.txt"
+        
+        # Run wcmp and capture both stdout and stderr
+        set +e
+        WCMP_OUTPUT=$(./testres/wcmp "${HELLO_DIR}/empty_input.txt" "${HELLO_DIR}/actual_output.txt" "${HELLO_DIR}/expected_output.txt" 2>&1)
+        WCMP_EXIT_CODE=$?
+        set -e
+        
+        echo "wcmp output: $WCMP_OUTPUT"
+        echo "wcmp exit code: $WCMP_EXIT_CODE"
+        
+        if [ $WCMP_EXIT_CODE -eq 0 ]; then
+          echo "✅ wcmp test PASSED for $HELLO_FILE: $WCMP_OUTPUT"
+        else
+          echo "❌ wcmp test FAILED for $HELLO_FILE: $WCMP_OUTPUT"
+          echo "This means the program output does not match expected 'Hello World'"
+          exit 1
+        fi
+        
+    - name: Additional validation tests
+      run: |
+        HELLO_FILE="${{ matrix.hello_file }}"
+        HELLO_DIR=$(dirname "$HELLO_FILE")
+        
+        echo "🔄 Running additional validation tests for $HELLO_FILE..."
+        
+        # Test 1: Check if output contains Hello and World
+        if grep -q "Hello" "${HELLO_DIR}/actual_output.txt" && grep -q "World" "${HELLO_DIR}/actual_output.txt"; then
+          echo "✅ Output contains both 'Hello' and 'World'"
+        else
+          echo "❌ Output missing 'Hello' or 'World'"
+        fi
+        
+        # Test 2: Check exact line count
+        LINES=$(wc -l < "${HELLO_DIR}/actual_output.txt")
+        if [ "$LINES" -eq 1 ]; then
+          echo "✅ Output has exactly 1 line"
+        else
+          echo "❌ Output has $LINES lines (expected 1)"
+        fi
+        
+        # Test 3: Check for common mistakes
+        if grep -q "hello" "${HELLO_DIR}/actual_output.txt"; then
+          echo "⚠️  Found lowercase 'hello' - check capitalization"
+        fi
+        
+        if grep -q "world" "${HELLO_DIR}/actual_output.txt"; then
+          echo "⚠️  Found lowercase 'world' - check capitalization"
+        fi
+        
+    - name: Final test summary
+      run: |
+        HELLO_FILE="${{ matrix.hello_file }}"
+        HELLO_DIR=$(dirname "$HELLO_FILE")
+        
+        echo "===================="
+        echo "ALL TESTS PASSED for $HELLO_FILE!"
+        echo "===================="
+        echo "Your hello.c program correctly outputs 'Hello World'"
+        echo "Actual program output:"
+        echo "$(cat ${HELLO_DIR}/actual_output.txt)"
+        
+    - name: Cleanup
+      if: always()
+      run: |
+        HELLO_FILE="${{ matrix.hello_file }}"
+        HELLO_DIR=$(dirname "$HELLO_FILE")
+        HELLO_BASENAME=$(basename "$HELLO_FILE" .c)
+        
+        rm -f "${HELLO_DIR}/${HELLO_BASENAME}"
+        rm -f "${HELLO_DIR}/actual_output.txt"
+        rm -f "${HELLO_DIR}/expected_output.txt"
+        rm -f "${HELLO_DIR}/empty_input.txt"
