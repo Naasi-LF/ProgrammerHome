@@ -4,10 +4,6 @@ on:
   pull_request:
     paths:
       - '**/hello.c'
-  push:
-    branches: [ main, master, 先导活动提交支 ]
-    paths:
-      - '**/hello.c'
 
 jobs:
   find-hello-files:
@@ -107,27 +103,6 @@ jobs:
         printf "Hello World" > "${HELLO_DIR}/expected_output.txt"
         echo "✅ Expected output file created"
         
-    # - name: Debug output comparison
-    #   run: |
-    #     HELLO_DIR=$(dirname "${{ matrix.hello_file }}")
-        
-    #     echo "=== File sizes ==="
-    #     wc -c "${HELLO_DIR}/actual_output.txt" "${HELLO_DIR}/expected_output.txt"
-        
-    #     echo "=== Actual output ==="
-    #     cat "${HELLO_DIR}/actual_output.txt" | od -c
-        
-    #     echo "=== Expected output ==="
-    #     cat "${HELLO_DIR}/expected_output.txt" | od -c
-        
-    #     echo "=== Direct comparison ==="
-    #     if diff "${HELLO_DIR}/actual_output.txt" "${HELLO_DIR}/expected_output.txt" > /dev/null; then
-    #       echo "✅ Files are identical (diff)"
-    #     else
-    #       echo "❌ Files differ (diff)"
-    #       diff "${HELLO_DIR}/actual_output.txt" "${HELLO_DIR}/expected_output.txt" || true
-    #     fi
-        
     - name: Test with wcmp
       run: |
         HELLO_FILE="${{ matrix.hello_file }}"
@@ -151,37 +126,6 @@ jobs:
           echo "❌ wcmp test FAILED for $HELLO_FILE: $WCMP_OUTPUT"
           echo "This means the program output does not match expected 'Hello World'"
           exit 1
-        fi
-        
-    - name: Additional validation tests
-      run: |
-        HELLO_FILE="${{ matrix.hello_file }}"
-        HELLO_DIR=$(dirname "$HELLO_FILE")
-        
-        echo "🔄 Running additional validation tests for $HELLO_FILE..."
-        
-        # Test 1: Check if output contains Hello and World
-        if grep -q "Hello" "${HELLO_DIR}/actual_output.txt" && grep -q "World" "${HELLO_DIR}/actual_output.txt"; then
-          echo "✅ Output contains both 'Hello' and 'World'"
-        else
-          echo "❌ Output missing 'Hello' or 'World'"
-        fi
-        
-        # Test 2: Check exact line count
-        LINES=$(wc -l < "${HELLO_DIR}/actual_output.txt")
-        if [ "$LINES" -eq 1 ]; then
-          echo "✅ Output has exactly 1 line"
-        else
-          echo "❌ Output has $LINES lines (expected 1)"
-        fi
-        
-        # Test 3: Check for common mistakes
-        if grep -q "hello" "${HELLO_DIR}/actual_output.txt"; then
-          echo "⚠️  Found lowercase 'hello' - check capitalization"
-        fi
-        
-        if grep -q "world" "${HELLO_DIR}/actual_output.txt"; then
-          echo "⚠️  Found lowercase 'world' - check capitalization"
         fi
         
     - name: Final test summary
